@@ -1,17 +1,16 @@
 package com.example.weather
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
-import android.location.LocationManager
 import android.net.Uri
 import android.os.AsyncTask
-import android.provider.Settings
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
@@ -22,17 +21,20 @@ import android.widget.TextView.OnEditorActionListener
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
 import kotlinx.android.synthetic.main.activity_main.*
 import org.json.JSONObject
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.ConcurrentModificationException
 
 
 class MainActivity : AppCompatActivity() {
+
+
+    var latitudeValue: Double = 0.0
+    var longitudeValue: Double = 0.0
+    var defaultCityName: String = ""
 
     companion object {
         private val TAG = "LocationProvider"
@@ -42,7 +44,7 @@ class MainActivity : AppCompatActivity() {
     //Declaring the needed Variables
     private var fusedLocationClient: FusedLocationProviderClient? = null
     private var lastLocation: Location? = null
-    
+
 
     val API: String = "3a485c50a0f24fac25ab17a31b97c2e1"
 
@@ -58,8 +60,7 @@ class MainActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 requestPermissions()
             }
-        }
-        else {
+        } else {
             getLastLocation()
         }
     }
@@ -76,14 +77,17 @@ class MainActivity : AppCompatActivity() {
                 View.OnClickListener {
                     startLocationPermissionRequest()
                 })
-        }
-        else {
+        } else {
             Log.i(TAG, "Requesting permission")
             startLocationPermissionRequest()
         }
     }
 
-    private fun showSnackbar(mainTextStringId: String, actionStringId: String, listener: View.OnClickListener) {
+    private fun showSnackbar(
+        mainTextStringId: String,
+        actionStringId: String,
+        listener: View.OnClickListener
+    ) {
         Toast.makeText(this@MainActivity, mainTextStringId, Toast.LENGTH_LONG).show()
     }
 
@@ -105,7 +109,14 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun getLastLocation() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
             // TODO: Consider calling
             //    ActivityCompat#requestPermissions
             // here to request the missing permissions, and then overriding
@@ -118,23 +129,39 @@ class MainActivity : AppCompatActivity() {
         fusedLocationClient?.lastLocation!!.addOnCompleteListener(this) { task ->
             if (task.isSuccessful && task.result != null) {
                 lastLocation = task.result
-                val latitudeLabel = lastLocation!!.latitude
-                val longitudeLabel = lastLocation!!.longitude
+                latitudeValue = lastLocation!!.latitude
+                longitudeValue = lastLocation!!.longitude
 
+                defaultCityName = getCityName(latitudeValue, longitudeValue)
+                textView.text = defaultCityName
+                weatherTask(defaultCityName)
 
-                Toast.makeText(this,  ""+latitudeLabel, Toast.LENGTH_SHORT).show()
-                Toast.makeText(this, ""+longitudeLabel, Toast.LENGTH_SHORT).show()
+//                Toast.makeText(this,  ""+latitudeValue, Toast.LENGTH_SHORT).show()
+//                Toast.makeText(this, ""+longitudeValue, Toast.LENGTH_SHORT).show()
 
-            }
-            else {
+            } else {
                 Log.w(TAG, "getLastLocation:exception", task.exception)
                 showMessage("No location detected. Make sure location is enabled on the device.")
             }
         }
     }
 
+    private fun getCityName(lat: Double, long: Double): String {
+        var cityName: String = ""
+        var countryName = ""
+        val geoCoder = Geocoder(this, Locale.getDefault())
+        val Adress = geoCoder.getFromLocation(lat, long, 3)
+
+        cityName = Adress.get(0).locality
+        countryName = Adress.get(0).countryName
+        Toast.makeText(this, "Your City: $cityName ; your Country $countryName", Toast.LENGTH_SHORT)
+            .show()
+        return cityName
+    }
+
+
     private fun showMessage(string: String) {
-            Toast.makeText(this@MainActivity, string, Toast.LENGTH_LONG).show()
+        Toast.makeText(this@MainActivity, string, Toast.LENGTH_LONG).show()
     }
 
 
@@ -193,16 +220,6 @@ class MainActivity : AppCompatActivity() {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         }
 
-//        searchLocation.setOnClickListener {
-//            val location = findViewById<EditText>(R.id.address_et)
-//            val city = location.text.toString()
-//            weatherTask(city).execute()
-//            editText.visibility = View.GONE
-//            address.visibility = View.VISIBLE
-//            address.text = city
-
-//        }
-
 
         address_et.setOnEditorActionListener(OnEditorActionListener { v, actionId, event ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
@@ -218,8 +235,6 @@ class MainActivity : AppCompatActivity() {
         })
         refreshApp()
 
-
-
         address.setOnClickListener {
             address_et.visibility = View.VISIBLE
             address.visibility = View.GONE
@@ -230,33 +245,40 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshApp() {
 
-        swipeToRefresh.setOnRefreshListener {
-            weatherTask(city.text.toString()).execute()
-            Toast.makeText(this, "Refresh Done", Toast.LENGTH_SHORT).show()
-            swipeToRefresh.isRefreshing = false
-        }
-    }
+        if (address_et.text.isEmpty()) {
+            swipeToRefresh.setOnRefreshListener {
+                weatherTask(defaultCityName)
 
-    fun CheckPermission():Boolean{
-        //this function will return a boolean
-        //true: if we have permission
-        //false if not
-        if(
-            ActivityCompat.checkSelfPermission(this,android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(this,android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        ){
-            return true
+
+                Toast.makeText(this, "Default City: $defaultCityName", Toast.LENGTH_SHORT).show()
+                swipeToRefresh.isRefreshing = false
+            }
+
+        } else {
+            swipeToRefresh.setOnRefreshListener {
+                weatherTask(city.text.toString()).execute()
+                Toast.makeText(this, "Refresh Done", Toast.LENGTH_SHORT).show()
+                swipeToRefresh.isRefreshing = false
+            }
         }
 
-        return false
 
     }
 
 
     inner class weatherTask(city: String) : AsyncTask<String, Void, String>() {
-        val loc: String = city
+
+
+        var loc: String = city
+
         override fun onPreExecute() {
+
             super.onPreExecute()
+            Toast.makeText(
+                applicationContext,
+                "Location from default: ${city.text.toString()}",
+                Toast.LENGTH_SHORT
+            ).show()
             /* Showing the ProgressBar, Making the main design GONE */
             findViewById<ProgressBar>(R.id.loader).visibility = View.VISIBLE
             findViewById<RelativeLayout>(R.id.mainContainer).visibility = View.GONE
@@ -264,12 +286,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun doInBackground(vararg params: String?): String? {
+
             var response: String?
             try {
                 response =
                     URL("https://api.openweathermap.org/data/2.5/weather?q=$loc&units=metric&appid=$API").readText(
                         Charsets.UTF_8
                     )
+
             } catch (e: Exception) {
                 response = null
             }
@@ -287,7 +311,10 @@ class MainActivity : AppCompatActivity() {
                 val weather = jsonObj.getJSONArray("weather").getJSONObject(0)
 
                 val updatedAt: Long = jsonObj.getLong("dt")
-                val updatedAtText = "Updated at: " + SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.ENGLISH).format(Date(updatedAt * 1000))
+                val updatedAtText =
+                    "Updated at: " + SimpleDateFormat("dd/MM/yyyy hh:mm a", Locale.ENGLISH).format(
+                        Date(updatedAt * 1000)
+                    )
                 val temp = main.getString("temp") + "°C"
                 val tempMin = "Min Temp: " + main.getString("temp_min") + "°C"
                 val tempMax = "Max Temp: " + main.getString("temp_max") + "°C"
